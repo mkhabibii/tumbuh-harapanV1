@@ -7,7 +7,6 @@ import pandas as pd
 import sqlite3
 from datetime import datetime
 import google.genai as genai
-from google.genai import types
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
