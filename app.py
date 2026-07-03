@@ -242,7 +242,6 @@ def generate_advice():
                 model="models/gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    max_output_tokens=400,
                     temperature=0.7
                 ) 
             )

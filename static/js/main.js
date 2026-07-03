@@ -83,6 +83,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const waitTime = elapsed < minDelay ? minDelay - elapsed : 0;
 
       setTimeout(() => {
+        if (response.status === 429) {
+          resultPanel.innerHTML = `
+            <div class="p-6 bg-red-50 border border-red-200 rounded-lg text-center w-full max-w-md mx-auto">
+              <div class="text-4xl mb-3">⚠️</div>
+              <h3 class="text-xl font-bold text-red-700 mb-2">Batas Harian Tercapai</h3>
+              <p class="text-red-600 text-md">
+                Maaf, Anda telah mencapai batas maksimal 10 pemeriksaan hari ini. Silakan coba lagi besok untuk menjaga performa server.
+              </p>
+            </div>
+          `;
+          return;
+        }
+
         if (!response.ok) {
           resultPanel.innerHTML = `<p class="text-red-600 font-semibold">Error: ${
             resJson.error || "Terjadi kesalahan"
@@ -110,7 +123,6 @@ document.addEventListener("DOMContentLoaded", () => {
             badgeColor = "bg-gray-500";
         }
 
-        // --- Tampilkan template hasil ML secara instan ---
         resultPanel.innerHTML = `
         <div id="result-card" class="bg-card text-card-foreground rounded-lg h-fit">
             <div class="p-6 pb-0">
@@ -168,7 +180,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div id="saran-gizi-wrapper" class="p-4 text-lg text-justify bg-blue-50 border border-blue-200 rounded-lg">
                         <div id="saran-gizi-loader" class="flex items-center gap-3">
                             <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
-                            <span class="text-gray-600 text-lg italic">Menyusun rekomendasi gizi terbaik dari Gemini AI...</span>
+                            <span class="text-gray-600 text-lg italic">Menyusun rekomendasi gizi terbaik</span>
                         </div>
                     </div>
                 </div>
@@ -184,7 +196,6 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
         form.reset();
 
-        // --- Fetch Saran Gizi AI Secara Async (di background) ---
         const adviceData = {
           age: Number(age),
           height: Number(height),
@@ -192,43 +203,47 @@ document.addEventListener("DOMContentLoaded", () => {
           status: resJson.status,
           asi: asi || null,
           frekuensi_makan: frekuensiMakan || null,
-          ekonomi: ekonomi || null
+          ekonomi: ekonomi || null,
         };
 
         fetch("/generate-advice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(adviceData)
+          body: JSON.stringify(adviceData),
         })
-        .then(async (adviceResp) => {
-          const adviceJson = await adviceResp.json();
-          const wrapper = document.getElementById("saran-gizi-wrapper");
-          
-          if (!adviceResp.ok || adviceJson.error) {
-            wrapper.innerHTML = `<p class="text-red-600 italic">Gagal memuat saran gizi dari AI.</p>`;
-            return;
-          }
+          .then(async (adviceResp) => {
+            const adviceJson = await adviceResp.json();
+            const wrapper = document.getElementById("saran-gizi-wrapper");
 
-          const saranList = adviceJson.saran
-            .split("\n")
-            .filter((line) => line.trim().length > 0)
-            .map((line) => line.replace(/^\d+\.\s*/, "").trim());
+            if (adviceResp.status === 429) {
+              wrapper.innerHTML = `<p class="text-orange-600 italic">Batas harian saran gizi tercapai hari ini. Silakan coba lagi besok.</p>`;
+              return;
+            }
 
-          const saranHtml = `
+            if (!adviceResp.ok || adviceJson.error) {
+              wrapper.innerHTML = `<p class="text-red-600 italic">Gagal memuat saran gizi dari AI.</p>`;
+              return;
+            }
+
+            const saranList = adviceJson.saran
+              .split("\n")
+              .filter((line) => line.trim().length > 0)
+              .map((line) => line.replace(/^\d+\.\s*/, "").trim());
+
+            const saranHtml = `
             <ol class="list-decimal list-inside space-y-2 text-lg leading-relaxed text-blue-900">
               ${saranList.map((saranItem) => `<li>${saranItem}</li>`).join("")}
             </ol>
           `;
-          wrapper.innerHTML = saranHtml;
-        })
-        .catch((err) => {
-          console.error("Advice Error:", err);
-          const wrapper = document.getElementById("saran-gizi-wrapper");
-          if (wrapper) {
-            wrapper.innerHTML = `<p class="text-red-600 italic">Terjadi kesalahan koneksi saat memuat saran gizi.</p>`;
-          }
-        });
-
+            wrapper.innerHTML = saranHtml;
+          })
+          .catch((err) => {
+            console.error("Advice Error:", err);
+            const wrapper = document.getElementById("saran-gizi-wrapper");
+            if (wrapper) {
+              wrapper.innerHTML = `<p class="text-red-600 italic">Terjadi kesalahan koneksi saat memuat saran gizi.</p>`;
+            }
+          });
       }, waitTime);
     } catch (error) {
       resultPanel.innerHTML = `<p class="text-red-600 font-semibold">Error: ${error.message}</p>`;
@@ -247,7 +262,6 @@ document.addEventListener("click", function (e) {
   const menu = document.getElementById("mobile-menu");
   const toggle = document.getElementById("menu-toggle");
 
-  // Kalau menu sedang terbuka dan klik terjadi di luar menu & tombol toggle
   if (
     !menu.classList.contains("hidden") &&
     !menu.contains(e.target) &&
