@@ -242,9 +242,9 @@ def generate_advice():
                 model="models/gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    max_output_tokens=300,
-                    temperature=0.3
-                )
+                    max_output_tokens=400,
+                    temperature=0.7
+                ) 
             )
             saran = response.text
         except Exception as e:
