@@ -7,26 +7,26 @@ import pandas as pd
 import sqlite3
 from datetime import datetime
 import google.genai as genai
+from google.genai import types
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# --- Load environment variables ---
+#  Load environment variables 
 load_dotenv()
 
-# --- Path settings ---
+# Path settings
 APP_DIR = os.path.dirname(__file__)
 MODEL_PATH = os.path.join(APP_DIR, 'model_stunting.pkl')
 DB_PATH = os.path.join(APP_DIR, 'database.db')
 
-# --- Init app ---
 app = Flask(__name__)
 CORS(app)
 
-# --- Configure Gemini AI (new google.genai SDK) ---
+# Configure Gemini AI 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- Rate Limiter anti-abuse ---
+
 # Maksimal 10 prediksi per IP per hari
 limiter = Limiter(
     get_remote_address,
@@ -35,7 +35,7 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-# --- Load ML model ---
+#  Load ML model 
 try:
     model = joblib.load(MODEL_PATH)
     print("[OK] Model loaded successfully")
@@ -43,7 +43,7 @@ except FileNotFoundError:
     print(f"[WARN] Model file not found at {MODEL_PATH}")
     model = None
 
-# --- Database helpers ---
+# Database helpers 
 def get_db():
     if '_database' not in g:
         g._database = sqlite3.connect(DB_PATH)
@@ -86,7 +86,7 @@ init_db()
 # LABEL MAPPING untuk prompt Gemini
 ASI_LABEL = {
     "ya": "Ya, mendapat ASI eksklusif penuh selama 6 bulan",
-    "sebagian": "Sebagian (ASI + sufor/MPASI dini sebelum 6 bulan)",
+    "sebagian": "Sebagian ( ASI + sufor / MPASI dini sebelum 6 bulan) ",
     "tidak": "Tidak, menggunakan susu formula sejak lahir",
     "tidak_tahu": "Tidak diketahui"
 }
@@ -100,9 +100,9 @@ FREKUENSI_LABEL = {
 }
 
 EKONOMI_LABEL = {
-    "rendah": "Rendah — akses pangan terbatas, rekomendasikan makanan terjangkau seperti telur, tempe, tahu",
-    "menengah": "Menengah — cukup untuk memenuhi kebutuhan gizi pokok",
-    "cukup": "Cukup — tidak ada kendala ekonomi untuk memenuhi gizi anak"
+    "rendah": "Rendah, akses pangan terbatas, rekomendasikan makanan terjangkau seperti telur, tempe, tahu",
+    "menengah": "Menengah, cukup untuk memenuhi kebutuhan gizi pokok",
+    "cukup": "Cukup, tidak ada kendala ekonomi untuk memenuhi gizi anak"
 }
 
 # ===================
@@ -113,7 +113,7 @@ EKONOMI_LABEL = {
 def beranda():
     return render_template("beranda.html")
 
-# Health check endpoint untuk UptimeRobot agar server tidak tidur
+# Health check endpoint untuk UptimeRobot agar server ga tidur
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "message": "Tumbuh Harapan is running"}), 200
@@ -136,16 +136,14 @@ def tes_stunting():
 
             age = float(data['age'])
             if age > 60:
-                return jsonify({
-                    'error': 'Usia tidak boleh lebih dari 60 bulan'
-                }), 400
+                return jsonify({'error': 'Usia tidak boleh lebih dari 60 bulan'}), 400
 
             height = float(data['height'])
             gender = int(data['gender'])
 
+            # Klasifikasi ML
             df = pd.DataFrame([[gender, age, height]],
                               columns=['Jenis Kelamin', 'Umur (bulan)', 'Tinggi Badan (cm)'])
-
             pred = model.predict(df)[0]
             prob = float(model.predict_proba(df).max())
 
@@ -157,66 +155,7 @@ def tes_stunting():
             }
             status_display = status_map.get(pred.lower(), "Status Tidak Diketahui")
 
-            # --- Ambil data opsional  ---
-            asi = data.get('asi') or None
-            frekuensi_makan = data.get('frekuensi_makan') or None
-            ekonomi = data.get('ekonomi') or None
-
-            # --- prompt Gemini ---
-            gender_text = "Laki-laki" if gender == 1 else "Perempuan"
-
-            # Konteks tambahan dari field opsional
-            konteks_tambahan = ""
-            if asi and asi in ASI_LABEL:
-                konteks_tambahan += f"- Riwayat ASI eksklusif: {ASI_LABEL[asi]}\n"
-            if frekuensi_makan and frekuensi_makan in FREKUENSI_LABEL:
-                konteks_tambahan += f"- Frekuensi makan saat ini: {FREKUENSI_LABEL[frekuensi_makan]}\n"
-            if ekonomi and ekonomi in EKONOMI_LABEL:
-                konteks_tambahan += f"- Kondisi ekonomi keluarga: {EKONOMI_LABEL[ekonomi]}\n"
-
-            prompt = (
-                f"Anda adalah ahli gizi anak yang ramah, empatik, dan praktis. "
-                f"Berikan saran berdasarkan kondisi nyata keluarga.\n\n"
-                f"DATA ANAK:\n"
-                f"- Usia: {age} bulan\n"
-                f"- Tinggi badan: {height} cm\n"
-                f"- Jenis kelamin: {gender_text}\n"
-                f"- Status gizi: {status_display}\n"
-            )
-
-            if konteks_tambahan:
-                prompt += f"\nINFORMASI TAMBAHAN:\n{konteks_tambahan}"
-
-            prompt += (
-                f"\nTUGAS:\n"
-                f"Berikan tepat 4 saran gizi yang SPESIFIK dan PRAKTIS dalam bahasa Indonesia. "
-                f"Pertimbangkan semua data di atas. Jika ada kendala ekonomi, "
-                f"rekomendasikan bahan terjangkau (telur, tempe, tahu, ikan asin, dll). "
-                f"Jika frekuensi makan kurang, sertakan saran menambah frekuensi. "
-                f"Setiap saran maksimal 35 kata.\n\n"
-                f"FORMAT (HANYA 4 poin bernomor, tanpa kalimat pembuka/penutup):\n"
-                f"1. [saran pertama]\n"
-                f"2. [saran kedua]\n"
-                f"3. [saran ketiga]\n"
-                f"4. [saran keempat]"
-            )
-
-            try:
-                response = gemini_client.models.generate_content(
-                    model="models/gemini-2.5-flash",
-                    contents=prompt
-                )
-                saran = response.text
-            except Exception as e:
-                saran = (
-                    "1. Berikan makanan bergizi seimbang setiap hari sesuai usia anak.\n"
-                    "2. Pastikan anak mendapat protein hewani seperti telur, tempe, atau ikan setiap hari.\n"
-                    "3. Konsultasikan kondisi anak dengan dokter atau ahli gizi terdekat.\n"
-                    "4. Pantau tumbuh kembang anak secara rutin di Posyandu atau Puskesmas."
-                )
-                app.logger.error(f"Gemini API Error: {e}")
-
-            # --- Simpan ke database ---
+            # Simpan ke database
             conn = get_db()
             cur = conn.cursor()
             cur.execute('''
@@ -224,7 +163,7 @@ def tes_stunting():
                   (age, height, gender, status_gizi, probability, asi, frekuensi_makan, ekonomi, created_at)
                 VALUES (?,?,?,?,?,?,?,?,?)
             ''', (age, height, gender, status_display, prob,
-                  asi, frekuensi_makan, ekonomi,
+                  data.get('asi'), data.get('frekuensi_makan'), data.get('ekonomi'),
                   datetime.utcnow().isoformat()))
             conn.commit()
 
@@ -233,13 +172,95 @@ def tes_stunting():
                 'probability': prob,
                 'age': age,
                 'height': height,
-                'gender': gender,
-                'saran': saran
+                'gender': gender
             })
 
         except Exception as e:
             app.logger.error(f"Prediction Error: {e}")
             return jsonify({'error': str(e)}), 400
+
+
+# Endpoint generate saran gizi AI
+@app.route("/generate-advice", methods=["POST"])
+@limiter.limit("15 per day")  
+def generate_advice():
+    data = request.get_json()
+    required_fields = ['age', 'height', 'gender', 'status']
+    if not data or not all(f in data for f in required_fields):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    try:
+        age = float(data['age'])
+        height = float(data['height'])
+        gender = int(data['gender'])
+        status_display = data['status']
+        gender_text = "Laki-laki" if gender == 1 else "Perempuan"
+
+        # Ambil data opsional
+        asi = data.get('asi') or None
+        frekuensi_makan = data.get('frekuensi_makan') or None
+        ekonomi = data.get('ekonomi') or None
+
+        # Bangun konteks tambahan
+        konteks_tambahan = ""
+        if asi and asi in ASI_LABEL:
+            konteks_tambahan += f"- Riwayat ASI eksklusif: {ASI_LABEL[asi]}\n"
+        if frekuensi_makan and frekuensi_makan in FREKUENSI_LABEL:
+            konteks_tambahan += f"- Frekuensi makan saat ini: {FREKUENSI_LABEL[frekuensi_makan]}\n"
+        if ekonomi and ekonomi in EKONOMI_LABEL:
+            konteks_tambahan += f"- Kondisi ekonomi keluarga: {EKONOMI_LABEL[ekonomi]}\n"
+
+        # prompt Gemini
+        prompt = (
+            f"Anda adalah ahli gizi anak yang ramah, empatik, dan praktis. "
+            f"Berikan saran berdasarkan kondisi nyata keluarga.\n\n"
+            f"DATA ANAK:\n"
+            f"- Usia: {age} bulan\n"
+            f"- Tinggi badan: {height} cm\n"
+            f"- Jenis kelamin: {gender_text}\n"
+            f"- Status gizi: {status_display}\n"
+        )
+        if konteks_tambahan:
+            prompt += f"\nINFORMASI TAMBAHAN:\n{konteks_tambahan}"
+
+        prompt += (
+            f"\nTUGAS:\n"
+            f"Berikan tepat 4 saran gizi yang SPESIFIK dan PRAKTIS dalam bahasa Indonesia. "
+            f"Pertimbangkan semua data di atas. Jika ada kendala ekonomi, "
+            f"rekomendasikan bahan terjangkau (telur, tempe, tahu, ikan asin, dll). "
+            f"Jika frekuensi makan kurang, sertakan saran menambah frekuensi. "
+            f"Setiap saran maksimal 35 kata.\n\n"
+            f"FORMAT (HANYA 4 poin bernomor, tanpa kalimat pembuka/penutup):\n"
+            f"1. [saran pertama]\n"
+            f"2. [saran kedua]\n"
+            f"3. [saran ketiga]\n"
+            f"4. [saran keempat]"
+        )
+
+        try:
+            response = gemini_client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=300,
+                    temperature=0.3
+                )
+            )
+            saran = response.text
+        except Exception as e:
+            saran = (
+                "1. Berikan makanan bergizi seimbang setiap hari sesuai usia anak.\n"
+                "2. Pastikan anak mendapat protein hewani seperti telur, tempe, atau ikan setiap hari.\n"
+                "3. Konsultasikan kondisi anak dengan dokter atau ahli gizi terdekat.\n"
+                "4. Pantau tumbuh kembang anak secara rutin di Posyandu atau Puskesmas."
+            )
+            app.logger.error(f"Gemini API Error: {e}")
+
+        return jsonify({'saran': saran})
+
+    except Exception as e:
+        app.logger.error(f"Advice Generation Error: {e}")
+        return jsonify({'error': str(e)}), 400
 
 
 # Handle rate limit exceeded (error 429)

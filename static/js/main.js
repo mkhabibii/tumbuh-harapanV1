@@ -110,23 +110,12 @@ document.addEventListener("DOMContentLoaded", () => {
             badgeColor = "bg-gray-500";
         }
 
-        // --- BAGIAN INI UNTUK MEMPROSES SARAN GIZI ---
-        const saranList = resJson.saran
-          .split("\n")
-          .filter((line) => line.trim().length > 0)
-          .map((line) => line.replace(/^\d+\.\s*/, "").trim());
-
-        const saranHtml = `
-      <ol class="list-decimal list-inside space-y-2 text-lg leading-relaxed text-blue-900">
-        ${saranList.map((saranItem) => `<li>${saranItem}</li>`).join("")}
-      </ol>
-    `;
-        // --- AKHIR BAGIAN PEMROSESAN ---
+        // --- Tampilkan template hasil ML secara instan ---
         resultPanel.innerHTML = `
         <div id="result-card" class="bg-card text-card-foreground rounded-lg h-fit">
             <div class="p-6 pb-0">
                 <h3 class="text-2xl font-semibold leading-none tracking-tight flex items-center gap-3">
-                    Hasil Prediksi
+                    Hasil Diagnosis
                     <span id="status-badge" class="inline-flex items-center rounded-full ${badgeColor} ${badgeTextColor} px-2 py-1 text-sm font-semibold">
                         ${resJson.status}
                     </span>
@@ -137,7 +126,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="p-6 space-y-6">
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
-                        <p class="text-xl font-bold text-muted-foreground">Diagnosis</p>
+                        <p class="text-xl font-bold text-muted-foreground">Persentase</p>
                         <p id="probability" class="text-2xl font-semibold text-blue-600">
                             ${(resJson.probability * 100).toFixed(0)}%
                         </p>
@@ -175,9 +164,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="shrink-0 bg-border h-[1px] w-full"></div>
 
                 <div class="space-y-3">
-                    <h4 class="font-bold text-xl text-blue-900">Saran Gizi</h4>
-                    <div class="p-4 text-lg text-justify bg-blue-50 border border-blue-200 rounded-lg">
-                        ${saranHtml}
+                    <h4 class="font-bold text-xl text-blue-900">Rekomendasi Saran Gizi AI</h4>
+                    <div id="saran-gizi-wrapper" class="p-4 text-lg text-justify bg-blue-50 border border-blue-200 rounded-lg">
+                        <div id="saran-gizi-loader" class="flex items-center gap-3">
+                            <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
+                            <span class="text-gray-600 text-lg italic">Menyusun rekomendasi gizi terbaik dari Gemini AI...</span>
+                        </div>
                     </div>
                 </div>
 
@@ -189,8 +181,54 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>
             </div>
         </div>
-    `;
+        `;
         form.reset();
+
+        // --- Fetch Saran Gizi AI Secara Async (di background) ---
+        const adviceData = {
+          age: Number(age),
+          height: Number(height),
+          gender: gender,
+          status: resJson.status,
+          asi: asi || null,
+          frekuensi_makan: frekuensiMakan || null,
+          ekonomi: ekonomi || null
+        };
+
+        fetch("/generate-advice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(adviceData)
+        })
+        .then(async (adviceResp) => {
+          const adviceJson = await adviceResp.json();
+          const wrapper = document.getElementById("saran-gizi-wrapper");
+          
+          if (!adviceResp.ok || adviceJson.error) {
+            wrapper.innerHTML = `<p class="text-red-600 italic">Gagal memuat saran gizi dari AI.</p>`;
+            return;
+          }
+
+          const saranList = adviceJson.saran
+            .split("\n")
+            .filter((line) => line.trim().length > 0)
+            .map((line) => line.replace(/^\d+\.\s*/, "").trim());
+
+          const saranHtml = `
+            <ol class="list-decimal list-inside space-y-2 text-lg leading-relaxed text-blue-900">
+              ${saranList.map((saranItem) => `<li>${saranItem}</li>`).join("")}
+            </ol>
+          `;
+          wrapper.innerHTML = saranHtml;
+        })
+        .catch((err) => {
+          console.error("Advice Error:", err);
+          const wrapper = document.getElementById("saran-gizi-wrapper");
+          if (wrapper) {
+            wrapper.innerHTML = `<p class="text-red-600 italic">Terjadi kesalahan koneksi saat memuat saran gizi.</p>`;
+          }
+        });
+
       }, waitTime);
     } catch (error) {
       resultPanel.innerHTML = `<p class="text-red-600 font-semibold">Error: ${error.message}</p>`;
